@@ -8,25 +8,26 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
-const BEARER_TOKEN = decodeURIComponent(process.env.BEARER_TOKEN);
+const BEARER_TOKEN = decodeURIComponent(process.env.BEARER_TOKEN || "");
 const USERNAME = "DavidDeutschOxf";
 
 // 🧠 Simple in-memory cache
 let cachedTweets = null;
 let lastFetched = 0;
-const CACHE_DURATION = 1000 * 60 * 15; // 15 minutes in ms
+const CACHE_DURATION = 1000 * 60 * 15; // 15 minutes
 
-// 🐦 Get tweets (with caching)
+// 🐦 GET /tweets — fetch tweets, cache them, support `?limit=`
 app.get("/tweets", async (req, res) => {
   const now = Date.now();
+  const limit = parseInt(req.query.limit) || 10;
 
-  // ✅ Serve cached tweets if not expired
+  // ✅ Serve from cache if fresh
   if (cachedTweets && now - lastFetched < CACHE_DURATION) {
-    return res.json(cachedTweets);
+    return res.json(cachedTweets.slice(0, limit));
   }
 
   try {
-    // Step 1: Get user ID
+    // Step 1: Get user ID from username
     const userRes = await axios.get(
       `https://api.twitter.com/2/users/by/username/${USERNAME}`,
       {
@@ -38,7 +39,7 @@ app.get("/tweets", async (req, res) => {
 
     const userId = userRes.data.data.id;
 
-    // Step 2: Get tweets
+    // Step 2: Fetch tweets
     const tweetsRes = await axios.get(
       `https://api.twitter.com/2/users/${userId}/tweets`,
       {
@@ -46,7 +47,7 @@ app.get("/tweets", async (req, res) => {
           Authorization: `Bearer ${BEARER_TOKEN}`,
         },
         params: {
-          max_results: 10,
+          max_results: 20, // fetch more, filter later
           "tweet.fields": "id,text,created_at",
         },
       }
@@ -58,28 +59,32 @@ app.get("/tweets", async (req, res) => {
       url: `https://twitter.com/${USERNAME}/status/${tweet.id}`,
     }));
 
-    // 💾 Update cache
+    // 💾 Cache result
     cachedTweets = tweets;
     lastFetched = now;
 
-    res.json(tweets);
+    res.json(tweets.slice(0, limit));
   } catch (err) {
-    console.error("Error fetching tweets:", err.response?.data || err.message);
+    console.error(
+      "❌ Error fetching tweets:",
+      err.response?.data || err.message
+    );
     res.status(500).json({ error: "Failed to fetch tweets" });
   }
 });
 
-// 🔧 Optional: manual cache clear (for dev/debug)
+// 🧪 GET /clear-cache — development only
 app.get("/clear-cache", (req, res) => {
   cachedTweets = null;
   lastFetched = 0;
-  res.send("Tweet cache cleared.");
+  res.send("✅ Tweet cache cleared.");
 });
 
+// 🌐 GET / — Health check
 app.get("/", (req, res) => {
-  res.send("Infinity Bot API is running.");
+  res.send("🟢 Infinity Bot API is running.");
 });
 
 app.listen(PORT, () => {
-  console.log(`✅ Server running on http://localhost:${PORT}`);
+  console.log(`🚀 Server running at http://localhost:${PORT}`);
 });
